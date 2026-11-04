@@ -146,7 +146,9 @@ class AdminCategoryOptionSerializer(serializers.ModelSerializer):
     """Light shape for dropdowns, e.g. the category filter on the Trainings screen."""
 
     parent = serializers.SlugRelatedField(slug_field="slug", read_only=True)
-    parent_name = serializers.CharField(source="parent.name", read_only=True, default=None)
+    parent_name = serializers.CharField(
+        source="parent.name", read_only=True, default=None
+    )
 
     class Meta:
         model = Category
@@ -405,6 +407,7 @@ class AdminTrainingSerializer(TrainingContentFields, DynamicFieldsModelSerialize
         elif obj.status == TrainingStatus.APPROVED and institute_approved:
             actions.append("feature")
         return actions
+
 
 class AdminEnquiryListSerializer(DynamicFieldsModelSerializer):
     """One row of the admin monitor. Read-only; no phone, email or message."""

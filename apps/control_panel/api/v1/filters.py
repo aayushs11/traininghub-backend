@@ -2,10 +2,9 @@ import django_filters
 from django.db.models import Exists, OuterRef, Q
 
 from apps.common.models.category import Category
+from apps.enquiries.models import Enquiry
 from apps.institutes.constants import DocumentStatus
 from apps.institutes.models import Institute, InstituteDocument
-from django.db.models import Q
-from apps.enquiries.models import Enquiry
 from apps.training.models import Training
 
 # documents an admin still has to look at: new uploads, and rejected ones uploaded again
@@ -36,7 +35,9 @@ class AdminTrainingFilter(django_filters.FilterSet):
         fields = ("status", "mode", "institute", "category", "is_featured")
 
     def filter_category(self, queryset, name, value):
-        return queryset.filter(Q(category__slug=value) | Q(category__parent__slug=value))
+        return queryset.filter(
+            Q(category__slug=value) | Q(category__parent__slug=value)
+        )
 
 
 class AdminInstituteFilter(django_filters.FilterSet):
@@ -57,7 +58,6 @@ class AdminInstituteFilter(django_filters.FilterSet):
             )
         )
         return queryset.filter(pending) if value else queryset.exclude(pending)
-        fields = ("status", "mode", "institute")
 
 
 class AdminEnquiryFilter(django_filters.FilterSet):
