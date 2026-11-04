@@ -23,11 +23,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.models.category import Category
-from apps.common.viewsets import CreateListRetrieveUpdateViewSet
+from apps.common.viewsets import CreateListRetrieveUpdateViewSet, ListViewSet
 from apps.control_panel.api.v1 import selectors
 from apps.control_panel.api.v1.filters import (
     AWAITING_REVIEW,
     AdminCategoryFilter,
+    AdminEnquiryFilter,
     AdminInstituteFilter,
     AdminTrainingFilter,
 )
@@ -35,6 +36,7 @@ from apps.control_panel.api.v1.serializers import (
     AdminCategoryOptionSerializer,
     AdminCategorySerializer,
     AdminDocumentSerializer,
+    AdminEnquiryListSerializer,
     AdminInstituteListSerializer,
     AdminInstituteSerializer,
     AdminSerializer,
@@ -432,6 +434,7 @@ class AdminTrainingViewSet(viewsets.ReadOnlyModelViewSet):
             training_services.set_featured,
             with_reason=False,
             featured=serializer.validated_data["is_featured"],
+        )
 
 # enquiries
 class AdminEnquiryViewSet(ListViewSet):
