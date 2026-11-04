@@ -71,6 +71,7 @@ class PublicTrainingListSerializer(DynamicFieldsModelSerializer):
             "category",
             "location",
             "published_at",
+            "is_featured",
         )
 
     def get_duration(self, obj):
@@ -175,12 +176,12 @@ class PublicTrainingDetailSerializer(PublicTrainingListSerializer):
             "email": (own.contact_email if own else "")
             or (institute.contact_email if institute else ""),
         }
-    
+
     def get_institute(self, obj):
-            data = super().get_institute(obj)
-            data["experience"] = institute_experience(obj.institute.established_year)
-            data["training_count"] = obj.institute_training_count
-            return data
+        data = super().get_institute(obj)
+        data["experience"] = institute_experience(obj.institute.established_year)
+        data["training_count"] = obj.institute_training_count
+        return data
 
 
 # portal (the institute's own staff)
