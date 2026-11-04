@@ -31,6 +31,7 @@ from apps.institutes.models import (
     InstituteLocation,
     InstituteMember,
     InstituteSocialLink,
+    InstituteStatusLog,
 )
 from apps.institutes.validators import validate_institute_location
 from apps.users import services as user_services
@@ -40,11 +41,12 @@ User = get_user_model()
 
 
 # status workflow
-def _transition(institute, to, *, reason="", check=None):
-    """Move an institute to a new status. Caller must be inside transaction.atomic()."""
+def _transition(institute, to, *, reason="", check=None, by=None):
+    """Move an institute to a new status and log it. Caller must be inside transaction.atomic()."""
     institute = Institute.objects.select_for_update().get(pk=institute.pk)
-    if to not in InstituteStatus.TRANSITIONS[institute.status]:
-        raise ValidationError(f"Cannot move from {institute.status} to {to}.")
+    previous = institute.status
+    if to not in InstituteStatus.TRANSITIONS[previous]:
+        raise ValidationError(f"Cannot move from {previous} to {to}.")
     if to in InstituteStatus.REASON_REQUIRED and not reason.strip():
         raise ValidationError({"reason": "A reason is required."})
     if check:
@@ -52,6 +54,13 @@ def _transition(institute, to, *, reason="", check=None):
     institute.status = to
     institute.status_reason = reason
     institute.save(update_fields=["status", "status_reason", "modified_at"])
+    InstituteStatusLog.objects.create(
+        institute=institute,
+        from_status=previous,
+        to_status=to,
+        reason=reason.strip(),
+        changed_by=by,
+    )
     return institute
 
 
@@ -66,35 +75,43 @@ def _ready_for_approval(institute):
 
 @transaction.atomic
 def approve(institute, *, by):
-    # TODO(audit) + TODO(notify): the institute owner
-    return _transition(institute, InstituteStatus.APPROVED, check=_ready_for_approval)
+    # TODO(notify): the institute owner
+    institute = _transition(
+        institute, InstituteStatus.APPROVED, check=_ready_for_approval, by=by
+    )
+    # approving the institute accepts everything it uploaded so far; a document added
+    # later starts as PENDING (the model default) and is verified by an admin on its own
+    institute.documents.exclude(status=DocumentStatus.VERIFIED).update(
+        status=DocumentStatus.VERIFIED, modified_at=timezone.now()
+    )
+    return institute
 
 
 @transaction.atomic
 def reject(institute, *, by, reason):
-    return _transition(institute, InstituteStatus.REJECTED, reason=reason)
+    return _transition(institute, InstituteStatus.REJECTED, reason=reason, by=by)
 
 
 @transaction.atomic
 def request_info(institute, *, by, reason):
-    return _transition(institute, InstituteStatus.INFO_REQUESTED, reason=reason)
+    return _transition(institute, InstituteStatus.INFO_REQUESTED, reason=reason, by=by)
 
 
 @transaction.atomic
 def suspend(institute, *, by, reason):
     # Staff keep their accounts (they can still log in); the public queries hide the institute.
-    return _transition(institute, InstituteStatus.SUSPENDED, reason=reason)
+    return _transition(institute, InstituteStatus.SUSPENDED, reason=reason, by=by)
 
 
 @transaction.atomic
 def reinstate(institute, *, by):
-    return _transition(institute, InstituteStatus.APPROVED)
+    return _transition(institute, InstituteStatus.APPROVED, by=by)
 
 
 @transaction.atomic
-def resubmit(institute):
+def resubmit(institute, *, by=None):
     """The owner answers an info request, or re-applies after a rejection."""
-    return _transition(institute, InstituteStatus.PENDING)
+    return _transition(institute, InstituteStatus.PENDING, by=by)
 
 
 @transaction.atomic

@@ -165,6 +165,29 @@ class InstituteLocation(BaseModel):
         ]
 
 
+class InstituteStatusLog(BaseModel):
+    """One row per status change (approve, reject, request info, suspend, resubmit ...), so the
+    review history survives: `Institute.status_reason` only keeps the latest reason."""
+
+    institute = models.ForeignKey(
+        Institute, on_delete=models.CASCADE, related_name="status_logs"
+    )
+    from_status = models.CharField(max_length=20, choices=InstituteStatus.CHOICES)
+    to_status = models.CharField(max_length=20, choices=InstituteStatus.CHOICES)
+    reason = models.TextField(blank=True)
+    # the admin who reviewed, or the owner who resubmitted; null if unknown or the user is deleted
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["institute", "created_at"], name="institutes_statuslog_idx"
+            )
+        ]
+
+
 class InstituteGalleryImage(BaseModel):
     institute = models.ForeignKey(
         Institute, on_delete=models.CASCADE, related_name="gallery"

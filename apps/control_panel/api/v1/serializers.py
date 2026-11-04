@@ -16,16 +16,16 @@ from apps.institutes.api.v1.serializers import (
     InstituteLocationSerializer,
     InstituteSocialLinkSerializer,
 )
-from apps.institutes.constants import DocumentStatus
+from apps.institutes.constants import DocumentStatus, InstituteStatus
 from apps.institutes.models import Institute, InstituteDocument
 from apps.training.api.v1.serializers import (
     LearningOutcomeSerializer,
-    PortalTrainingListSerializer,
     PortalTrainingSerializer,
     TrainingContentFields,
     TrainingModuleSerializer,
     TrainingSessionSerializer,
 )
+from apps.training.constants import TrainingStatus
 from apps.training.models import Training
 from apps.users import services as user_services
 from apps.users.api.v1.serializers import ProfileSerializer
@@ -142,6 +142,18 @@ class AdminCategorySerializer(DynamicFieldsModelSerializer):
         return common_services.update_category(instance, **validated_data)
 
 
+class AdminCategoryOptionSerializer(serializers.ModelSerializer):
+    """Light shape for dropdowns, e.g. the category filter on the Trainings screen."""
+
+    parent = serializers.SlugRelatedField(slug_field="slug", read_only=True)
+    parent_name = serializers.CharField(source="parent.name", read_only=True, default=None)
+
+    class Meta:
+        model = Category
+        fields = ("id", "slug", "name", "parent", "parent_name", "is_active")
+        read_only_fields = fields
+
+
 # institutes
 class AdminDocumentSerializer(DynamicFieldsModelSerializer):
     class Meta:
@@ -156,6 +168,15 @@ class DocumentReviewSerializer(serializers.Serializer):
     )
 
 
+# the review actions an admin can take, by the status they move the institute to
+_INSTITUTE_ACTIONS = {
+    InstituteStatus.APPROVED: "approve",
+    InstituteStatus.REJECTED: "reject",
+    InstituteStatus.INFO_REQUESTED: "request_info",
+    InstituteStatus.SUSPENDED: "suspend",
+}
+
+
 class AdminInstituteSerializer(DynamicFieldsModelSerializer):
     """Read-only view of an institute for the reviewer: what it gave at registration (locations,
     contact person) and what it added since, with every location, retired ones included."""
@@ -166,6 +187,7 @@ class AdminInstituteSerializer(DynamicFieldsModelSerializer):
     ceo = InstituteCEOSerializer(read_only=True, allow_null=True)
     social_links = InstituteSocialLinkSerializer(many=True, read_only=True)
     locations = InstituteLocationSerializer(many=True, read_only=True)
+    available_actions = serializers.SerializerMethodField()
 
     class Meta:
         model = Institute
@@ -187,19 +209,128 @@ class AdminInstituteSerializer(DynamicFieldsModelSerializer):
             "social_links",
             "locations",
             "documents",
+            "available_actions",
         )
 
     def get_owner_email(self, obj):
         owners = getattr(obj, "owner_members", [])  # prefetched by the admin viewset
         return owners[0].user.email if owners else None
 
+    def get_available_actions(self, obj):
+        """The buttons the admin may press now, from the real status rules, so the frontend
+        does not hard-code them. A rejected or info-requested institute waits for its owner."""
+        targets = InstituteStatus.TRANSITIONS.get(obj.status, ())
+        return [
+            action for status, action in _INSTITUTE_ACTIONS.items() if status in targets
+        ]
+
+
+class AdminInstituteListSerializer(DynamicFieldsModelSerializer):
+    """One row of the institutes list: only what the table shows (no documents, social links or
+    CEO). Reads the annotations and prefetches set by AdminInstituteViewSet.get_queryset."""
+
+    contact_person = serializers.CharField(
+        source="contact.contact_person", read_only=True, default=None
+    )
+    contact_email = serializers.CharField(
+        source="contact.contact_email", read_only=True, default=None
+    )
+    contact_phone = serializers.CharField(
+        source="contact.contact_phone", read_only=True, default=None
+    )
+    city = serializers.SerializerMethodField()
+    district = serializers.SerializerMethodField()
+    province = serializers.SerializerMethodField()
+    trainings_count = serializers.IntegerField(read_only=True)
+    # documents waiting for review: new uploads, and rejected ones uploaded again
+    pending_documents_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Institute
+        fields = (
+            "id",
+            "slug",
+            "name",
+            "type",
+            "status",
+            "created_at",
+            "contact_person",
+            "contact_email",
+            "contact_phone",
+            "city",
+            "district",
+            "province",
+            "trainings_count",
+            "pending_documents_count",
+        )
+
+    def _main_location(self, obj):
+        locations = list(obj.locations.all())  # prefetched: active ones, main first
+        return locations[0].location if locations else None
+
+    def get_city(self, obj):
+        location = self._main_location(obj)
+        return location.name if location else None
+
+    def get_district(self, obj):
+        location = self._main_location(obj)
+        return location.district.name if location else None
+
+    def get_province(self, obj):
+        location = self._main_location(obj)
+        return location.province.name if location else None
+
 
 # trainings
-class AdminTrainingListSerializer(PortalTrainingListSerializer):
-    institute_name = serializers.CharField(source="institute.name", read_only=True)
+class FeatureSerializer(serializers.Serializer):
+    is_featured = serializers.BooleanField()
 
-    class Meta(PortalTrainingListSerializer.Meta):
-        fields = PortalTrainingListSerializer.Meta.fields + ("institute_name",)
+
+def _category_data(category):
+    """The stored category is the leaf: a sub-category has a parent, a main category does not."""
+    parent = category.parent
+    return {
+        "id": category.pk,
+        "slug": category.slug,
+        "name": category.name,
+        "parent": parent.name if parent else None,
+        "parent_slug": parent.slug if parent else None,
+    }
+
+
+class AdminTrainingListSerializer(DynamicFieldsModelSerializer):
+    """One row of the Trainings and Training Approvals lists. Reads select_related rows only."""
+
+    institute = serializers.SerializerMethodField()
+    category = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Training
+        fields = (
+            "id",
+            "slug",
+            "title",
+            "status",
+            "is_featured",
+            "mode",
+            "fee_npr",
+            "start_date",
+            "end_date",
+            "review_feedback",
+            "created_at",
+            "institute",
+            "category",
+        )
+
+    def get_institute(self, obj):
+        return {
+            "slug": obj.institute.slug,
+            "name": obj.institute.name,
+            "status": obj.institute.status,
+        }
+
+    def get_category(self, obj):
+        return _category_data(obj.category)
 
 
 class AdminTrainingSerializer(TrainingContentFields, DynamicFieldsModelSerializer):
@@ -212,10 +343,17 @@ class AdminTrainingSerializer(TrainingContentFields, DynamicFieldsModelSerialize
     sessions = TrainingSessionSerializer(many=True, read_only=True)
     modules = TrainingModuleSerializer(many=True, read_only=True)
     outcomes = LearningOutcomeSerializer(many=True, read_only=True)
+    submitted_at = serializers.SerializerMethodField()
+    available_actions = serializers.SerializerMethodField()
 
     class Meta:
         model = Training
-        fields = PortalTrainingSerializer.Meta.fields + ("institute",)
+        fields = PortalTrainingSerializer.Meta.fields + (
+            "institute",
+            "is_featured",
+            "submitted_at",
+            "available_actions",
+        )
         read_only_fields = fields
 
     def get_institute(self, obj):
@@ -227,13 +365,7 @@ class AdminTrainingSerializer(TrainingContentFields, DynamicFieldsModelSerialize
         }
 
     def get_category(self, obj):
-        parent = obj.category.parent
-        return {
-            "id": obj.category_id,
-            "slug": obj.category.slug,
-            "name": obj.category.name,
-            "parent": parent.name if parent else None,
-        }
+        return _category_data(obj.category)
 
     def get_venue(self, obj):
         venue = getattr(obj, "venue", None)
@@ -255,29 +387,21 @@ class AdminTrainingSerializer(TrainingContentFields, DynamicFieldsModelSerialize
             "name": obj.category.name,
         }
 
+    def get_submitted_at(self, obj):
+        """When it last went to review (annotated by the viewset); the creation date if never."""
+        return getattr(obj, "submitted_at", None) or obj.created_at
 
-class AdminEnquiryListSerializer(DynamicFieldsModelSerializer):
-    """One row of the admin monitor. Read-only; no phone, email or message."""
-
-    institute_name = serializers.CharField(source="institute.name", read_only=True)
-    training_title = serializers.CharField(source="training.title", read_only=True)
-    category = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Enquiry
-        fields = (
-            "id",
-            "name",
-            "type",
-            "status",
-            "training_title",
-            "institute_name",
-            "category",
-            "created_at",
-        )
-        read_only_fields = fields
-
-    def get_category(self, obj):
-        # Training.category is the leaf: a sub-category has a parent, a top-level one does not
-        category = obj.training.category
-        return (category.parent or category).name
+    def get_available_actions(self, obj):
+        """The buttons the admin may press now, so the frontend does not hard-code them. Approve
+        needs an approved institute (the design disables it otherwise)."""
+        institute_approved = obj.institute.status == InstituteStatus.APPROVED
+        actions = []
+        if obj.status == TrainingStatus.SUBMITTED:
+            if institute_approved:
+                actions.append("approve")
+            actions += ["request_changes", "reject"]
+        if obj.is_featured:
+            actions.append("unfeature")
+        elif obj.status == TrainingStatus.APPROVED and institute_approved:
+            actions.append("feature")
+        return actions

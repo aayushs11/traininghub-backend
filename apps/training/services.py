@@ -25,6 +25,7 @@ from apps.training.models import (
     TrainingLocation,
     TrainingModule,
     TrainingSession,
+    TrainingStatusLog,
 )
 
 
@@ -237,8 +238,8 @@ def _ready_for_submission(training):
 
 
 # workflow
-def _transition(training, to, *, only_from=None, reason="", check=None):
-    """Caller must be inside transaction.atomic()."""
+def _transition(training, to, *, only_from=None, reason="", check=None, by=None):
+    """Move a training to a new status and log it. Caller must be inside transaction.atomic()."""
     training = (
         Training.objects.select_for_update(of=("self",))
         .select_related("institute", "venue__location")
@@ -255,18 +256,28 @@ def _transition(training, to, *, only_from=None, reason="", check=None):
         raise ValidationError({"reason": "A reason is required."})
     if check:
         check(training)
+    previous = training.status
     training.status = to
     if to in TrainingStatus.REASON_REQUIRED:
         training.review_feedback = reason
     elif to == TrainingStatus.APPROVED:
         training.review_feedback = ""
-    training.save(update_fields=["status", "review_feedback", "modified_at"])
+    if previous == TrainingStatus.APPROVED and to != TrainingStatus.APPROVED:
+        training.is_featured = False  # no longer live, so no longer featured
+    training.save(
+        update_fields=["status", "review_feedback", "is_featured", "modified_at"]
+    )
+    TrainingStatusLog.objects.create(
+        training=training,
+        from_status=previous,
+        to_status=to,
+        reason=reason.strip(),
+        changed_by=by,
+    )
     return training
 
 
 # institute actions
-
-
 @transaction.atomic
 def submit(training, *, by):
     _require_approved_institute(training.institute)
@@ -276,6 +287,7 @@ def submit(training, *, by):
         TrainingStatus.SUBMITTED,
         check=_ready_for_submission,
         only_from=TrainingStatus.EDITABLE,
+        by=by,
     )
 
 
@@ -283,14 +295,17 @@ def submit(training, *, by):
 def withdraw(training, *, by):
     """Take a submitted training back to DRAFT while it waits for review."""
     return _transition(
-        training, TrainingStatus.DRAFT, only_from={TrainingStatus.SUBMITTED}
+        training, TrainingStatus.DRAFT, only_from={TrainingStatus.SUBMITTED}, by=by
     )
 
 
 @transaction.atomic
 def unpublish(training, *, by):
     return _transition(
-        training, TrainingStatus.UNPUBLISHED, only_from={TrainingStatus.APPROVED}
+        training,
+        TrainingStatus.UNPUBLISHED,
+        only_from={TrainingStatus.APPROVED},
+        by=by,
     )
 
 
@@ -298,7 +313,10 @@ def unpublish(training, *, by):
 def republish(training, *, by):
     _require_approved_institute(training.institute)
     return _transition(
-        training, TrainingStatus.APPROVED, only_from={TrainingStatus.UNPUBLISHED}
+        training,
+        TrainingStatus.APPROVED,
+        only_from={TrainingStatus.UNPUBLISHED},
+        by=by,
     )
 
 
@@ -306,20 +324,28 @@ def republish(training, *, by):
 def cancel(training, *, by):
     # TODO(notify): people who sent an enquiry (once enquiries exist)
     return _transition(
-        training, TrainingStatus.CANCELLED, only_from=TrainingStatus.LIVE
+        training,
+        TrainingStatus.CANCELLED,
+        only_from=TrainingStatus.LIVE,
+        by=by,
     )
 
 
 # admin actions (a training that waits for review)
 @transaction.atomic
 def approve(training, *, by):
+    # the design disables Approve while the institute is not approved
+    _require_approved_institute(training.institute)
     training = _transition(
-        training, TrainingStatus.APPROVED, only_from={TrainingStatus.SUBMITTED}
+        training,
+        TrainingStatus.APPROVED,
+        only_from={TrainingStatus.SUBMITTED},
+        by=by,
     )
     if training.published_at is None:
         training.published_at = timezone.now()
         training.save(update_fields=["published_at", "modified_at"])
-    # TODO(audit) + TODO(notify): the institute
+    # TODO(notify): the institute
     return training
 
 
@@ -330,6 +356,7 @@ def request_changes(training, *, by, reason):
         TrainingStatus.CHANGES_REQUESTED,
         reason=reason,
         only_from={TrainingStatus.SUBMITTED},
+        by=by,
     )
 
 
@@ -340,17 +367,52 @@ def reject(training, *, by, reason):
         TrainingStatus.REJECTED,
         reason=reason,
         only_from={TrainingStatus.SUBMITTED},
+        by=by,
     )
 
 
-# the system
-def expire_trainings(today=None):
-    """Set EXPIRED on every live training whose end date has passed. One statement, safe to run often."""
-    today = today or timezone.localdate()
-    return Training.objects.filter(
-        status__in=TrainingStatus.LIVE, end_date__lt=today
-    ).update(status=TrainingStatus.EXPIRED, modified_at=timezone.now())
+@transaction.atomic
+def set_featured(training, *, featured, by):
+    """Feature or un-feature a training on the front page. Only an approved training of an
+    approved institute can be featured; un-featuring is always allowed."""
+    training = (
+        Training.objects.select_for_update(of=("self",))
+        .select_related("institute")
+        .get(pk=training.pk)
+    )
+    if featured:
+        if training.status != TrainingStatus.APPROVED:
+            raise ValidationError("Only an approved training can be featured.")
+        _require_approved_institute(training.institute)
+    if training.is_featured != featured:
+        training.is_featured = featured
+        training.save(update_fields=["is_featured", "modified_at"])
+    return training
 
+
+# the system
+@transaction.atomic
+def expire_trainings(today=None):
+    """Set EXPIRED on every live training whose end date has passed, and log each change.
+    Safe to run often. Returns how many were expired."""
+    today = today or timezone.localdate()
+    due = list(
+        Training.objects.select_for_update()
+        .filter(status__in=TrainingStatus.LIVE, end_date__lt=today)
+        .values_list("pk", "status")
+    )
+    if not due:
+        return 0
+    Training.objects.filter(pk__in=[pk for pk, _ in due]).update(
+        status=TrainingStatus.EXPIRED, is_featured=False, modified_at=timezone.now()
+    )
+    TrainingStatusLog.objects.bulk_create(
+        TrainingStatusLog(
+            training_id=pk, from_status=status, to_status=TrainingStatus.EXPIRED
+        )
+        for pk, status in due
+    )
+    return len(due)
 
 # content
 @transaction.atomic
@@ -457,7 +519,7 @@ def update_training(
     if back_to_review:
         _require_approved_institute(training.institute)
         training = _transition(
-            training, TrainingStatus.SUBMITTED, check=_ready_for_submission
+            training, TrainingStatus.SUBMITTED, check=_ready_for_submission,
         )
     return training
 

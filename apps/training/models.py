@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVectorField
@@ -65,6 +66,7 @@ class Training(BaseModel, SlugModel):
     registration_deadline = models.DateField(null=True, blank=True)
     review_feedback = models.TextField(blank=True)
     published_at = models.DateTimeField(null=True, blank=True)  # first approval
+    is_featured =  models.BooleanField(default=False)
     search_vector = SearchVectorField(null=True, editable=False)
 
     class Meta:
@@ -215,3 +217,26 @@ class TrainingLocation(BaseModel):
     contact_phone = models.CharField(
         max_length=25, blank=True, validators=[validate_phone_number]
     )
+
+
+class TrainingStatusLog(BaseModel):
+    """One row per status change (submit, approve, reject, request changes, unpublish, expire ...),
+    so the review history survives: `Training.review_feedback` only keeps the latest reason."""
+
+    training = models.ForeignKey(
+        Training, on_delete=models.CASCADE, related_name="status_logs"
+    )
+    from_status = models.CharField(max_length=20, choices=TrainingStatus.CHOICES)
+    to_status = models.CharField(max_length=20, choices=TrainingStatus.CHOICES)
+    reason = models.TextField(blank=True)
+    # the admin or institute user who did it; null for the system (expiry) or when not known
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["training", "created_at"], name="training_statuslog_idx"
+            )
+        ]
