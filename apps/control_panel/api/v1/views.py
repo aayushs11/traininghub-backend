@@ -1,3 +1,4 @@
+from rest_framework.viewsets import GenericViewSet
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import (
@@ -23,7 +24,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.models.category import Category
-from apps.control_panel.api.v1 import selectors
 from apps.common.viewsets import (
     CreateListRetrieveUpdateViewSet,
     ListViewSet,
@@ -44,8 +44,6 @@ from apps.control_panel.api.v1.serializers import (
     AdminDocumentSerializer,
     AdminInstituteListSerializer,
     AdminEnquiryListSerializer,
-    AdminEnquiryListSerializer,
-    AdminInstituteListSerializer,
     AdminInstituteSerializer,
     AdminSerializer,
     AdminTrainingListSerializer,
@@ -91,7 +89,7 @@ class AdminViewSet(CreateListRetrieveUpdateViewSet):
 
 
 # categories
-class AdminCategoryViewSet(CreateListRetrieveUpdateViewSet):
+class AdminCategoryViewSet(GenericViewSet):
     """No DELETE: deactivate with PATCH {"is_active": false}."""
 
     serializer_class = AdminCategorySerializer
@@ -192,7 +190,8 @@ class AdminInstituteViewSet(viewsets.ReadOnlyModelViewSet):
                 queryset.select_related("contact")
                 .prefetch_related(
                     Prefetch(
-                        "locations", queryset=_locations_queryset().filter(is_active=True)
+                        "locations",
+                        queryset=_locations_queryset().filter(is_active=True),
                     )
                 )
                 .annotate(
@@ -258,7 +257,9 @@ class AdminInstituteViewSet(viewsets.ReadOnlyModelViewSet):
             institute = service(self.get_object(), by=request.user, **kwargs)
         except DjangoValidationError as exc:  # a status rule or approval check -> a 400
             raise DRFValidationError(
-                exc.message_dict if hasattr(exc, "error_dict") else {"detail": exc.messages}
+                exc.message_dict
+                if hasattr(exc, "error_dict")
+                else {"detail": exc.messages}
             )
         # re-read through the viewset queryset so documents and owner are prefetched
         return Response(
@@ -409,7 +410,9 @@ class AdminTrainingViewSet(viewsets.ReadOnlyModelViewSet):
             training = service(self.get_object(), by=request.user, **kwargs)
         except DjangoValidationError as exc:  # a status rule or check -> a 400
             raise DRFValidationError(
-                exc.message_dict if hasattr(exc, "error_dict") else {"detail": exc.messages}
+                exc.message_dict
+                if hasattr(exc, "error_dict")
+                else {"detail": exc.messages}
             )
         return Response(
             AdminTrainingSerializer(
@@ -443,6 +446,7 @@ class AdminTrainingViewSet(viewsets.ReadOnlyModelViewSet):
             with_reason=False,
             featured=serializer.validated_data["is_featured"],
         )
+
 
 # enquiries
 class AdminEnquiryViewSet(ListViewSet):
