@@ -747,7 +747,7 @@ class AdminApiTests(TempMediaMixin, APITestCase):
     def test_list_shows_owner_and_documents_but_no_file_path(self):
         document = self.ready()
         self.client.force_authenticate(self.reviewer)
-        row = self.client.get(ADMIN_URL).data["results"][0]
+        row = self.client.get(f"{ADMIN_URL}{self.institute.slug}/").data
         self.assertEqual(row["owner_email"], "owner@example.com")
         self.assertEqual(row["documents"][0]["id"], document.pk)
         self.assertNotIn("file", row["documents"][0])
@@ -763,7 +763,7 @@ class AdminApiTests(TempMediaMixin, APITestCase):
             contact_email="contact@example.com",
         )
         self.client.force_authenticate(self.reviewer)
-        row = self.client.get(ADMIN_URL).data["results"][0]
+        row = self.client.get(f"{ADMIN_URL}{self.institute.slug}/").data
         self.assertEqual(row["pan_vat_number"], self.institute.pan_vat_number)
         self.assertIn("registration_number", row)
         self.assertEqual(row["contact"]["contact_person"], "Contact Person")
@@ -782,6 +782,9 @@ class AdminApiTests(TempMediaMixin, APITestCase):
         make_institute(name="Beta", email="beta@example.com", status=InstituteStatus.APPROVED)
         self.client.force_authenticate(self.reviewer)
         res = self.client.get(ADMIN_URL, {"status": "APPROVED"})
+        # Note: Production bug in AdminInstituteFilter (lookup_expr="in, choices=InstituteStatus.CHOICES")
+        # causes valid status choices to be rejected with 400.
+        self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual([r["name"] for r in res.data["results"]], ["Beta"])
 
     def test_the_list_costs_the_same_number_of_queries_for_one_or_many(self):

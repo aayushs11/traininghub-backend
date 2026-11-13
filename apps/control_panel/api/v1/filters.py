@@ -3,7 +3,7 @@ import django_filters
 from django.db.models import Exists, OuterRef, Q
 
 from apps.common.models.category import Category
-from apps.institutes.constants import DocumentStatus, AWAITING_REVIEW
+from apps.institutes.constants import AWAITING_REVIEW, InstituteStatus
 from apps.institutes.models import Institute, InstituteDocument
 
 from apps.enquiries.models import Enquiry
@@ -31,7 +31,11 @@ class ChoiceInFilter(django_filters.BaseInFilter, django_filters.ChoiceFilter):
 
 
 class AdminInstituteFilter(django_filters.FilterSet):
-    status = ChoiceInFilter(field_name="status", lookup_expr="in, choices=InstituteStatus.CHOICES")
+    status = ChoiceInFilter(
+        field_name="status",
+        lookup_expr="in",
+        choices=InstituteStatus.CHOICES,
+    )
     # ?has_pending_documents=true -> institutes with a document waiting for review (new or re-uploaded)
     has_pending_documents = django_filters.BooleanFilter(
         method="filter_has_pending_documents"
