@@ -58,6 +58,8 @@ class DocumentStatus:
         (RE_UPLOADED, "Re-uploaded"),
     )
 
+AWAITING_REVIEW = "AWAITING_REVIEW"
+
 
 class InvitationStatus:
     PENDING, ACCEPTED, REVOKED = "PENDING", "ACCEPTED", "REVOKED"
@@ -68,4 +70,3 @@ class InvitationStatus:
 DESCRIPTION_MIN_LENGTH = 150  # characters
 GALLERY_MIN_PHOTOS = 4
 SOCIAL_LINKS_MIN = 2
-

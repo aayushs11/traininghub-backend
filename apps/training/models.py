@@ -65,7 +65,7 @@ class Training(BaseModel, SlugModel):
     registration_deadline = models.DateField(null=True, blank=True)
     review_feedback = models.TextField(blank=True)
     published_at = models.DateTimeField(null=True, blank=True)  # first approval
-    is_featured =  models.BooleanField(default=False)
+    is_featured = models.BooleanField(default=False)
     search_vector = SearchVectorField(null=True, editable=False)
 
     class Meta:

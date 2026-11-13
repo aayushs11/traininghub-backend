@@ -29,23 +29,18 @@ from apps.control_panel.api.v1.filters import (
     AWAITING_REVIEW,
     AdminCategoryFilter,
     AdminInstituteFilter,
-)
-from apps.control_panel.api.v1.serializers import AdminInstituteListSerializer
-from apps.common.viewsets import (
-    CreateListRetrieveUpdateViewSet,
-    ListViewSet,
-    ReadOnlyViewSet,
-)
-from apps.control_panel.api.v1.filters import (
-    AdminCategoryFilter,
     AdminEnquiryFilter,
     AdminTrainingFilter,
+)
+from apps.common.viewsets import (
+    ListViewSet,
 )
 from apps.control_panel.api.v1.serializers import (
     AdminCategorySerializer,
     AdminDocumentSerializer,
     AdminEnquiryListSerializer,
     AdminInstituteSerializer,
+    AdminInstituteListSerializer,
     AdminSerializer,
     AdminTrainingListSerializer,
     AdminTrainingSerializer,
@@ -142,7 +137,7 @@ def _locations_queryset():
     ).order_by("-is_main", "pk")
 
 
-class AdminInstituteViewSet(viewsets.ReadOnlyModelViewSet):
+class AdminInstituteViewSet(ReadOnlyViewSet):
     """List: ?status=PENDING,INFO_REQUESTED (the Pending tab), ?type=, ?search=, ?ordering=.
     Tab counts: GET summary/. Review history: GET {slug}/activity/.
     Default order: waiting for review first, then newest."""

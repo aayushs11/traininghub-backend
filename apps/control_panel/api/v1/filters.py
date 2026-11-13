@@ -3,15 +3,11 @@ import django_filters
 from django.db.models import Exists, OuterRef, Q
 
 from apps.common.models.category import Category
-from apps.institutes.constants import DocumentStatus
+from apps.institutes.constants import DocumentStatus, AWAITING_REVIEW
 from apps.institutes.models import Institute, InstituteDocument
-from django.db.models import Q
 
 from apps.enquiries.models import Enquiry
 from apps.training.models import Training
-
-# documents an admin still has to look at: new uploads, and rejected ones uploaded again
-AWAITING_REVIEW = (DocumentStatus.PENDING, DocumentStatus.RE_UPLOADED)
 
 
 class AdminCategoryFilter(django_filters.FilterSet):
@@ -30,8 +26,12 @@ class AdminTrainingFilter(django_filters.FilterSet):
         fields = ("status", "mode", "institute")
 
 
+class ChoiceInFilter(django_filters.BaseInFilter, django_filters.ChoiceFilter):
+    """Comma separated values, each checked against `choices`: ?status=PENDING,INFO_REQUESTED"""
+
+
 class AdminInstituteFilter(django_filters.FilterSet):
-    status = BaseInFilter(field_name="status", lookup_expr="in")
+    status = ChoiceInFilter(field_name="status", lookup_expr="in, choices=InstituteStatus.CHOICES")
     # ?has_pending_documents=true -> institutes with a document waiting for review (new or re-uploaded)
     has_pending_documents = django_filters.BooleanFilter(
         method="filter_has_pending_documents"
@@ -48,6 +48,8 @@ class AdminInstituteFilter(django_filters.FilterSet):
             )
         )
         return queryset.filter(pending) if value else queryset.exclude(pending)
+
+
 class AdminEnquiryFilter(django_filters.FilterSet):
     institute = django_filters.CharFilter(field_name="institute__slug")
     category = django_filters.CharFilter(method="filter_category")
