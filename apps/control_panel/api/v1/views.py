@@ -266,9 +266,10 @@ class AdminInstituteViewSet(ReadOnlyViewSet):
 
     # Disabled until it is decided what suspending an institute means and whether it can be undone.
     # `institute_services.reinstate` and `InstituteStatus.TRANSITIONS[SUSPENDED]` are unchanged.
-    # @action(detail=True, methods=["post"])
-    # def reinstate(self, request, pk=None):
-    #     return self._review(request, institute_services.reinstate, with_reason=False)
+    @action(detail=True, methods=["post"])
+    def reinstate(self, request, *args, **kwargs):
+        """Lift a suspension: SUSPENDED back to APPROVED."""
+        return self._review(request, institute_services.reinstate, with_reason=False)
 
 
 class AdminDocumentView(GenericAPIView):

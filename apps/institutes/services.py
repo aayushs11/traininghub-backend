@@ -41,7 +41,7 @@ User = get_user_model()
 
 
 # status workflow
-def _transition(institute, to, *, reason="", check=None, by=None):
+def _transition(institute, to, *, reason="", check=None, by=None, only_from=None):
     """Move an institute to a new status and log it. Caller must be inside transaction.atomic()."""
     institute = Institute.objects.select_for_update().get(pk=institute.pk)
     previous = institute.status
@@ -77,7 +77,11 @@ def _ready_for_approval(institute):
 def approve(institute, *, by):
     # TODO(notify): the institute owner
     institute = _transition(
-        institute, InstituteStatus.APPROVED, check=_ready_for_approval, by=by
+        institute,
+        InstituteStatus.APPROVED,
+        check=_ready_for_approval,
+        only_from={InstituteStatus.PENDING},
+        by=by,
     )
     # approving the institute accepts everything it uploaded so far; a document added
     # later starts as PENDING (the model default) and is verified by an admin on its own
@@ -105,7 +109,10 @@ def suspend(institute, *, by, reason):
 
 @transaction.atomic
 def reinstate(institute, *, by):
-    return _transition(institute, InstituteStatus.APPROVED, by=by)
+    """Lift a suspension. Only from SUSPENDED: PENDING must go through `approve`, with its checks."""
+    return _transition(
+        institute, InstituteStatus.APPROVED, only_from={InstituteStatus.SUSPENDED}, by=by
+    )
 
 
 @transaction.atomic
@@ -174,7 +181,9 @@ def register(
     return institute
 
 
-def _create_registration(*, institute_data, owner, contact, locations, ceo, social_links):
+def _create_registration(
+    *, institute_data, owner, contact, locations, ceo, social_links
+):
     for item in locations:
         validate_institute_location(
             item["location"]
@@ -191,7 +200,9 @@ def _create_registration(*, institute_data, owner, contact, locations, ceo, soci
         ]
     )
     contact = dict(contact)
-    website = contact.pop("website", None)  # not a column: it is the "website" social link
+    website = contact.pop(
+        "website", None
+    )  # not a column: it is the "website" social link
     InstituteContact.objects.create(institute=institute, **contact)
     if ceo:
         InstituteCEO.objects.create(institute=institute, **ceo)
@@ -270,7 +281,9 @@ def add_document(institute, *, name, file):
     name = name.strip()
     # one upload per institute at a time, so two requests cannot both find "no such name"
     Institute.objects.select_for_update().get(pk=institute.pk)
-    if InstituteDocument.objects.filter(institute=institute, name__iexact=name).exists():
+    if InstituteDocument.objects.filter(
+        institute=institute, name__iexact=name
+    ).exists():
         raise ValidationError(
             {
                 "name": "A document with this name already exists. If it was rejected, "
@@ -292,7 +305,9 @@ def reupload_document(document, *, file):
     document.file = file
     document.status = DocumentStatus.RE_UPLOADED
     document.save(update_fields=["file", "status", "modified_at"])
-    transaction.on_commit(lambda: storage.delete(old_name))  # the rejected file is not kept
+    transaction.on_commit(
+        lambda: storage.delete(old_name)
+    )  # the rejected file is not kept
     return document
 
 

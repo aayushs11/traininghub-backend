@@ -158,10 +158,9 @@ class DocumentReviewSerializer(serializers.Serializer):
 
 # the review actions an admin can take, by the status they move the institute to
 _INSTITUTE_ACTIONS = {
-    InstituteStatus.APPROVED: "approve",
-    InstituteStatus.REJECTED: "reject",
-    InstituteStatus.INFO_REQUESTED: "request_info",
-    InstituteStatus.SUSPENDED: "suspend",
+    InstituteStatus.PENDING: ["approve", "reject", "request_info"],
+    InstituteStatus.APPROVED: ["suspend"],
+    InstituteStatus.SUSPENDED: ["reinstate"],
 }
 
 
@@ -205,12 +204,7 @@ class AdminInstituteSerializer(DynamicFieldsModelSerializer):
         return owners[0].user.email if owners else None
 
     def get_available_actions(self, obj):
-        """The buttons the admin may press now, from the real status rules, so the frontend
-        does not hard-code them. A rejected or info-requested institute waits for its owner."""
-        targets = InstituteStatus.TRANSITIONS.get(obj.status, ())
-        return [
-            action for status, action in _INSTITUTE_ACTIONS.items() if status in targets
-        ]
+        return list(_INSTITUTE_ACTIONS.get(obj.status, []))
 
 
 class AdminInstituteListSerializer(DynamicFieldsModelSerializer):
