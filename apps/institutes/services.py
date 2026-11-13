@@ -83,11 +83,6 @@ def approve(institute, *, by):
         only_from={InstituteStatus.PENDING},
         by=by,
     )
-    # approving the institute accepts everything it uploaded so far; a document added
-    # later starts as PENDING (the model default) and is verified by an admin on its own
-    institute.documents.exclude(status=DocumentStatus.VERIFIED).update(
-        status=DocumentStatus.VERIFIED, modified_at=timezone.now()
-    )
     return institute
 
 
