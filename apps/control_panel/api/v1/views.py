@@ -1,5 +1,4 @@
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import (
     Case,
     Count,
@@ -235,14 +234,7 @@ class AdminInstituteViewSet(ReadOnlyViewSet):
             serializer = ReasonSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             kwargs["reason"] = serializer.validated_data["reason"]
-        try:
-            institute = service(self.get_object(), by=request.user, **kwargs)
-        except DjangoValidationError as exc:  # a status rule or approval check -> a 400
-            raise DRFValidationError(
-                exc.message_dict
-                if hasattr(exc, "error_dict")
-                else {"detail": exc.messages}
-            )
+        institute = service(self.get_object(), by=request.user, **kwargs)
         # re-read through the viewset queryset so documents and owner are prefetched
         return Response(
             self.get_serializer(self.get_queryset().get(pk=institute.pk)).data
